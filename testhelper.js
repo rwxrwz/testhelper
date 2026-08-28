@@ -1202,7 +1202,7 @@
   let gearEl = null, panelEl = null; // для очистки при горячей перезагрузке
 
   async function buildMenu() {
-    const cfg = await store.get(["geminiKey", "enabled", "textOnly", "lang", "tokensUsed", "limitMsg", "authMsg", "edMode"]);
+    const cfg = await store.get(["geminiKey", "enabled", "textOnly", "lang", "tokensUsed", "limitMsg", "authMsg"]);
 
     const gear = mk("div", {
       position: "fixed", top: "8px", right: "8px", zIndex: "2147483647",
@@ -1233,12 +1233,6 @@
     lang.value = cfg.lang || "ru";
     lang.addEventListener("change", () => store.set({ lang: lang.value }));
     panel.appendChild(row("Язык", lang));
-
-    const edmode = mk("select", { background: "#2b2b35", color: "#eee", border: "1px solid #444", borderRadius: "5px", padding: "4px" });
-    [["highlight", "Подсветка"], ["auto", "Автосабмит+скип"]].forEach(([v, t]) => edmode.appendChild(mk("option", null, { value: v, textContent: t })));
-    edmode.value = cfg.edMode || "highlight";
-    edmode.addEventListener("change", () => store.set({ edMode: edmode.value }));
-    panel.appendChild(row("Edpuzzle", edmode));
 
     const tokWrap = mk("div", { display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 8px" });
     const tok = mk("span", { fontSize: "13px" });
