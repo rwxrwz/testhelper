@@ -648,16 +648,34 @@
         pageData: { homeworkGameId: pd.homeworkGameId, activityGuid: pd.activityGuid, authorUserId: pd.authorUserId, templateId: pd.templateId } };
       if (!n) { setIndicator("Wordwall: не нашёл элементы (шаблон " + pd.templateId + ") - жми «Копировать дамп»", "#f59e0b"); console.log(TAG, "WW diag:", this._diag); return; }
       if (mode === "canvas") return this.runCanvas(content, timeMs || 800);
-      return this.runServer(pd, n, timeMs || 800);
+      return this.runServer(pd, content, timeMs || 800);
     },
 
-    async runServer(pd, n, time) {
+    buildAnswers(content, time) {
+      var ans = [];
+      if (Array.isArray(content.groups) && content.groups.some(function (g) { return g && Array.isArray(g.items); })) {
+        // group sort: элементы раскиданы по группам, правильный ответ = индекс группы
+        var q = 0;
+        content.groups.forEach(function (g, gi) {
+          (g.items || []).forEach(function () { ans.push({ question: q, givenAnswer: String(gi), correct: true, timing: 0, score: 1, excludeFromFinalScore: false }); q++; });
+        });
+      } else {
+        // по умолчанию: главный массив, identity (карта/labelled diagram и похожие)
+        var n = this.countItems(content);
+        for (var i = 0; i < n; i++) ans.push({ question: i, givenAnswer: String(i), correct: true, timing: 0, score: 1, excludeFromFinalScore: false });
+      }
+      var N = ans.length || 1;
+      ans.forEach(function (a, i) { a.timing = Math.round(time * (i + 1) / N); });
+      return ans;
+    },
+
+    async runServer(pd, content, time) {
       const guid = localStorage.getItem("user_guid") || this.genGuid();
       const forename = localStorage.getItem("user_forename") || "1";
       const surname = localStorage.getItem("user_surname") || "";
-      // ответ вопроса i = метка i (пин и метка спарены по индексу в модели)
-      const answers = [];
-      for (let i = 0; i < n; i++) answers.push({ question: i, givenAnswer: String(i), correct: true, timing: Math.round(time * (i + 1) / n), score: 1, excludeFromFinalScore: false });
+      const answers = this.buildAnswers(content, time);
+      const n = answers.length;
+      if (!n) { setIndicator("Wordwall: не собрал ответы (шаблон " + pd.templateId + ") - жми «Копировать дамп»", "#f59e0b"); return; }
       const body = { reference: null, player: { id: 0, forename: forename, surname: surname, guid: guid }, answers: answers, submissionId: 0, time: null, deleted: false, scoreOffset: 0, googleClassroomStudentSubmissionId: null };
       const url = "/MyResultsAjax/AddHomeworkSubmission?homeworkGameId=" + pd.homeworkGameId +
         "&name=" + encodeURIComponent(forename) + "&score=" + n + "&time=" + time + "&playerGuid=" + guid;
