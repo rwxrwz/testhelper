@@ -676,6 +676,10 @@
       const answers = this.buildAnswers(content, time);
       const n = answers.length;
       if (!n) { setIndicator("Wordwall: не собрал ответы (шаблон " + pd.templateId + ") - жми «Копировать дамп»", "#f59e0b"); return; }
+      if (!window.confirm("TestHelper: отправить результат " + n + "/" + n + " (время " + time + "мс) на сервер Wordwall?")) {
+        setIndicator("Wordwall: отменено", "#f59e0b");
+        return;
+      }
       const body = { reference: null, player: { id: 0, forename: forename, surname: surname, guid: guid }, answers: answers, submissionId: 0, time: null, deleted: false, scoreOffset: 0, googleClassroomStudentSubmissionId: null };
       const url = "/MyResultsAjax/AddHomeworkSubmission?homeworkGameId=" + pd.homeworkGameId +
         "&name=" + encodeURIComponent(forename) + "&score=" + n + "&time=" + time + "&playerGuid=" + guid;
