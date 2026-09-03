@@ -594,40 +594,44 @@
     },
     genGuid() { return "xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxxx".replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16); }); },
 
-    async run(timeMs) {
+    async run(timeMs, mode) {
       const pd = window.pageData || {};
       if (!pd.homeworkGameId) { setIndicator("Wordwall: нет id активности (не тот тип ссылки)", "#f59e0b"); return; }
-      if (pd.templateId !== 22) { setIndicator("Wordwall: авто пока только для карт (шаблон 22), тут " + pd.templateId, "#f59e0b"); return; }
+      if (pd.templateId !== 22) { setIndicator("Wordwall: пока только карты (шаблон 22), тут " + pd.templateId, "#f59e0b"); return; }
       setIndicator("Wordwall: читаю модель...", "#3b82f6");
       const modelUrl = "https://user.cdn.wordwall.net/content-models/" + pd.authorUserId + "/" + pd.activityGuid + ".json";
-      let n = 0;
-      try { const m = await this.fetchModel(modelUrl); n = ((m.content && m.content.labels) || []).length; }
+      let labels = [];
+      try { const m = await this.fetchModel(modelUrl); labels = (m.content && m.content.labels) || []; }
       catch (e) { setIndicator("Wordwall: модель не достал: " + e.message, "#ef4444"); return; }
-      if (!n) { setIndicator("Wordwall: 0 меток в модели", "#ef4444"); return; }
+      if (!labels.length) { setIndicator("Wordwall: 0 меток в модели", "#ef4444"); return; }
 
+      if (mode === "canvas") return this.runCanvas(labels, timeMs || 800);
+      return this.runServer(pd, labels.length, timeMs || 800);
+    },
+
+    async runServer(pd, n, time) {
       const guid = localStorage.getItem("user_guid") || this.genGuid();
       const forename = localStorage.getItem("user_forename") || "1";
       const surname = localStorage.getItem("user_surname") || "";
-      const time = timeMs || 800;
       // ответ вопроса i = метка i (пин и метка спарены по индексу в модели)
       const answers = [];
       for (let i = 0; i < n; i++) answers.push({ question: i, givenAnswer: String(i), correct: true, timing: Math.round(time * (i + 1) / n), score: 1, excludeFromFinalScore: false });
       const body = { reference: null, player: { id: 0, forename: forename, surname: surname, guid: guid }, answers: answers, submissionId: 0, time: null, deleted: false, scoreOffset: 0, googleClassroomStudentSubmissionId: null };
       const url = "/MyResultsAjax/AddHomeworkSubmission?homeworkGameId=" + pd.homeworkGameId +
         "&name=" + encodeURIComponent(forename) + "&score=" + n + "&time=" + time + "&playerGuid=" + guid;
-
       setIndicator("Wordwall: отправляю результат (" + n + "/" + n + ")...", "#3b82f6");
       try {
         const r = await fetch(url, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const txt = await r.text().catch(function () { return ""; });
         console.log(TAG, "Wordwall submit:", r.status, "| score=" + n + " time=" + time + "ms | resp:", txt.slice(0, 200));
-        if (r.ok) {
-          setIndicator("Wordwall: " + n + "/" + n + " готово, завершаю...", "#22c55e");
-          setTimeout(function () { location.reload(); }, 700); // перезагрузка -> Wordwall покажет завершённое состояние/результаты
-        } else {
-          setIndicator("Wordwall: ошибка " + r.status, "#ef4444");
-        }
+        setIndicator(r.ok ? ("Wordwall: " + n + "/" + n + " отправлено (" + time + "мс) - открой лидерборд") : ("Wordwall: ошибка " + r.status), r.ok ? "#22c55e" : "#ef4444");
       } catch (e) { setIndicator("Wordwall: сабмит упал: " + e.message, "#ef4444"); console.warn(TAG, "Wordwall submit err", e); }
+    },
+
+    async runCanvas(labels, time) {
+      // прохождение через сам движок (симуляция перетаскиваний по canvas) - в разработке, нужны дампы координат
+      setIndicator("Wordwall: канвас-режим ещё не готов (нужны дампы)", "#f59e0b");
+      console.log(TAG, "Wordwall canvas-режим: заглушка, меток " + labels.length + ", time " + time + "мс");
     },
   };
 
@@ -1257,7 +1261,7 @@
   let gearEl = null, panelEl = null; // для очистки при горячей перезагрузке
 
   async function buildMenu() {
-    const cfg = await store.get(["geminiKey", "enabled", "textOnly", "lang", "tokensUsed", "limitMsg", "authMsg", "wwTime"]);
+    const cfg = await store.get(["geminiKey", "enabled", "textOnly", "lang", "tokensUsed", "limitMsg", "authMsg", "wwTime", "wwMode"]);
 
     const gear = mk("div", {
       position: "fixed", top: "8px", right: "8px", zIndex: "2147483647",
@@ -1292,7 +1296,13 @@
     if (adapter.name === "wordwall") {
       const clamp = (ms) => Math.max(1, Math.min(180000, Math.round(ms)));
       const box = mk("div", { margin: "8px 0", padding: "8px", border: "1px solid #3a3a45", borderRadius: "6px" });
-      box.appendChild(mk("div", { fontSize: "12px", fontWeight: "600", marginBottom: "6px" }, { textContent: "Wordwall: время прохождения" }));
+      box.appendChild(mk("div", { fontSize: "12px", fontWeight: "600", marginBottom: "6px" }, { textContent: "Wordwall" }));
+      const wmode = mk("select", { width: "100%", margin: "2px 0 6px", background: "#2b2b35", color: "#eee", border: "1px solid #444", borderRadius: "5px", padding: "4px" });
+      [["server", "Режим: серверный"], ["canvas", "Режим: на канвасе"]].forEach(([v, t]) => wmode.appendChild(mk("option", null, { value: v, textContent: t })));
+      wmode.value = cfg.wwMode || "server";
+      wmode.addEventListener("change", () => store.set({ wwMode: wmode.value }));
+      box.appendChild(wmode);
+      box.appendChild(mk("div", { fontSize: "12px", color: "#aaa", marginBottom: "4px" }, { textContent: "время прохождения" }));
       const slider = mk("input", { width: "100%", margin: "2px 0" }, { type: "range", min: "1", max: "180000", step: "1" });
       const secRow = mk("div", { display: "flex", alignItems: "center", gap: "6px", margin: "4px 0" });
       const sec = mk("input", { width: "90px", background: "#2b2b35", color: "#eee", border: "1px solid #444", borderRadius: "5px", padding: "4px" }, { type: "number", step: "0.001", min: "0.001", max: "180" });
@@ -1304,7 +1314,7 @@
       slider.addEventListener("input", () => sync(+slider.value));
       sec.addEventListener("change", () => sync((+sec.value || 0) * 1000, "sec"));
       const go = mk("button", { width: "100%", marginTop: "6px", background: "#6c5ce7", color: "#fff", border: "0", borderRadius: "5px", padding: "6px", cursor: "pointer" }, { textContent: "Пройти" });
-      go.addEventListener("click", () => wordwallAdapter.run(cur));
+      go.addEventListener("click", () => wordwallAdapter.run(cur, wmode.value));
       box.appendChild(slider); box.appendChild(secRow); box.appendChild(go);
       panel.appendChild(box);
     }
@@ -1377,9 +1387,9 @@
 
   if (adapter.name === "wordwall") {
     (async () => {
-      const c = await store.get(["enabled", "wwTime"]);
+      const c = await store.get(["enabled", "wwTime", "wwMode"]);
       if (c.enabled === false) { setIndicator("выключено", "#666"); return; }
-      try { await wordwallAdapter.run(c.wwTime || 800); }
+      try { await wordwallAdapter.run(c.wwTime || 800, c.wwMode || "server"); }
       catch (e) { console.warn(TAG, "Wordwall:", e.message); setIndicator("Wordwall: " + e.message, "#ef4444"); }
     })();
     window.__testhelperCleanup = function () {
