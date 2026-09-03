@@ -594,6 +594,24 @@
     },
     genGuid() { return "xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxxx".replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16); }); },
 
+    _waitTimer: null,
+    ready() {
+      var pd = window.pageData;
+      return !!(pd && pd.homeworkGameId && pd.activityGuid && (document.querySelector("canvas.render-canvas") || document.querySelector("canvas.js-render-canvas")));
+    },
+    // клик на экране имени -> ждём загрузки теста -> шлём сабмит со свежим временем/режимом
+    armAndRun() {
+      var self = this;
+      var fire = function () {
+        store.get(["wwTime", "wwMode"]).then(function (c) { self.run(c.wwTime || 800, c.wwMode || "server"); });
+      };
+      if (this.ready()) { fire(); return; }
+      setIndicator("Wordwall: жду тест...", "#3b82f6");
+      this._waitTimer = setInterval(function () {
+        if (self.ready()) { clearInterval(self._waitTimer); self._waitTimer = null; fire(); }
+      }, 1000);
+    },
+
     async run(timeMs, mode) {
       const pd = window.pageData || {};
       if (!pd.homeworkGameId) { setIndicator("Wordwall: нет id активности (не тот тип ссылки)", "#f59e0b"); return; }
@@ -1387,12 +1405,13 @@
 
   if (adapter.name === "wordwall") {
     (async () => {
-      const c = await store.get(["enabled", "wwTime", "wwMode"]);
+      const c = await store.get(["enabled"]);
       if (c.enabled === false) { setIndicator("выключено", "#666"); return; }
-      try { await wordwallAdapter.run(c.wwTime || 800, c.wwMode || "server"); }
+      try { wordwallAdapter.armAndRun(); }
       catch (e) { console.warn(TAG, "Wordwall:", e.message); setIndicator("Wordwall: " + e.message, "#ef4444"); }
     })();
     window.__testhelperCleanup = function () {
+      try { if (wordwallAdapter._waitTimer) clearInterval(wordwallAdapter._waitTimer); } catch (e) {}
       [indicatorEl, typeBadgeEl, overlayEl, gearEl, panelEl].forEach((el) => { if (el) el.remove(); });
     };
     return;
