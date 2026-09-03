@@ -1257,7 +1257,7 @@
   let gearEl = null, panelEl = null; // для очистки при горячей перезагрузке
 
   async function buildMenu() {
-    const cfg = await store.get(["geminiKey", "enabled", "textOnly", "lang", "tokensUsed", "limitMsg", "authMsg"]);
+    const cfg = await store.get(["geminiKey", "enabled", "textOnly", "lang", "tokensUsed", "limitMsg", "authMsg", "wwTime"]);
 
     const gear = mk("div", {
       position: "fixed", top: "8px", right: "8px", zIndex: "2147483647",
@@ -1288,6 +1288,26 @@
     lang.value = cfg.lang || "ru";
     lang.addEventListener("change", () => store.set({ lang: lang.value }));
     panel.appendChild(row("Язык", lang));
+
+    if (adapter.name === "wordwall") {
+      const clamp = (ms) => Math.max(1, Math.min(180000, Math.round(ms)));
+      const box = mk("div", { margin: "8px 0", padding: "8px", border: "1px solid #3a3a45", borderRadius: "6px" });
+      box.appendChild(mk("div", { fontSize: "12px", fontWeight: "600", marginBottom: "6px" }, { textContent: "Wordwall: время прохождения" }));
+      const slider = mk("input", { width: "100%", margin: "2px 0" }, { type: "range", min: "1", max: "180000", step: "1" });
+      const secRow = mk("div", { display: "flex", alignItems: "center", gap: "6px", margin: "4px 0" });
+      const sec = mk("input", { width: "90px", background: "#2b2b35", color: "#eee", border: "1px solid #444", borderRadius: "5px", padding: "4px" }, { type: "number", step: "0.001", min: "0.001", max: "180" });
+      secRow.appendChild(sec);
+      secRow.appendChild(mk("span", { fontSize: "12px", color: "#aaa" }, { textContent: "сек (0.001 - 180)" }));
+      let cur = clamp(cfg.wwTime || 800);
+      const sync = (ms, from) => { cur = clamp(ms); store.set({ wwTime: cur }); slider.value = String(cur); if (from !== "sec") sec.value = String(+(cur / 1000).toFixed(3)); };
+      slider.value = String(cur); sec.value = String(+(cur / 1000).toFixed(3));
+      slider.addEventListener("input", () => sync(+slider.value));
+      sec.addEventListener("change", () => sync((+sec.value || 0) * 1000, "sec"));
+      const go = mk("button", { width: "100%", marginTop: "6px", background: "#6c5ce7", color: "#fff", border: "0", borderRadius: "5px", padding: "6px", cursor: "pointer" }, { textContent: "Пройти" });
+      go.addEventListener("click", () => wordwallAdapter.run(cur));
+      box.appendChild(slider); box.appendChild(secRow); box.appendChild(go);
+      panel.appendChild(box);
+    }
 
     const tokWrap = mk("div", { display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 8px" });
     const tok = mk("span", { fontSize: "13px" });
@@ -1357,9 +1377,9 @@
 
   if (adapter.name === "wordwall") {
     (async () => {
-      const c = await store.get(["enabled"]);
+      const c = await store.get(["enabled", "wwTime"]);
       if (c.enabled === false) { setIndicator("выключено", "#666"); return; }
-      try { await wordwallAdapter.run(); }
+      try { await wordwallAdapter.run(c.wwTime || 800); }
       catch (e) { console.warn(TAG, "Wordwall:", e.message); setIndicator("Wordwall: " + e.message, "#ef4444"); }
     })();
     window.__testhelperCleanup = function () {
