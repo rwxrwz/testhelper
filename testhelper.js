@@ -576,7 +576,57 @@
     cleanup() { try { this._edMo && this._edMo.disconnect(); } catch (e) {} styleClear(this._hls); },
   };
 
-  const adapters = [kahootAdapter, classtimeAdapter, quizizzAdapter, edpuzzleAdapter];
+  // Wordwall - игра на canvas (текста в DOM нет), но модель с ответами лежит в content-models JSON,
+  // а результат сервер принимает от клиента без валидации (score/correct/time шлём сами) -> авто-сабмит.
+  const wordwallAdapter = {
+    name: "wordwall",
+    matches: (h) => h.includes("wordwall.net"),
+
+    async fetchModel(url) {
+      const r = await fetch(url, { credentials: "omit" });
+      try { return await r.clone().json(); }
+      catch (e) {
+        const buf = await r.arrayBuffer();
+        const ds = new DecompressionStream("gzip");
+        const txt = await new Response(new Blob([buf]).stream().pipeThrough(ds)).text();
+        return JSON.parse(txt);
+      }
+    },
+    genGuid() { return "xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxxx".replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16); }); },
+
+    async run(timeMs) {
+      const pd = window.pageData || {};
+      if (!pd.homeworkGameId) { setIndicator("Wordwall: нет id активности (не тот тип ссылки)", "#f59e0b"); return; }
+      if (pd.templateId !== 22) { setIndicator("Wordwall: авто пока только для карт (шаблон 22), тут " + pd.templateId, "#f59e0b"); return; }
+      setIndicator("Wordwall: читаю модель...", "#3b82f6");
+      const modelUrl = "https://user.cdn.wordwall.net/content-models/" + pd.authorUserId + "/" + pd.activityGuid + ".json";
+      let n = 0;
+      try { const m = await this.fetchModel(modelUrl); n = ((m.content && m.content.labels) || []).length; }
+      catch (e) { setIndicator("Wordwall: модель не достал: " + e.message, "#ef4444"); return; }
+      if (!n) { setIndicator("Wordwall: 0 меток в модели", "#ef4444"); return; }
+
+      const guid = localStorage.getItem("user_guid") || this.genGuid();
+      const forename = localStorage.getItem("user_forename") || "1";
+      const surname = localStorage.getItem("user_surname") || "";
+      const time = timeMs || 800;
+      // ответ вопроса i = метка i (пин и метка спарены по индексу в модели)
+      const answers = [];
+      for (let i = 0; i < n; i++) answers.push({ question: i, givenAnswer: String(i), correct: true, timing: Math.round(time * (i + 1) / n), score: 1, excludeFromFinalScore: false });
+      const body = { reference: null, player: { id: 0, forename: forename, surname: surname, guid: guid }, answers: answers, submissionId: 0, time: null, deleted: false, scoreOffset: 0, googleClassroomStudentSubmissionId: null };
+      const url = "/MyResultsAjax/AddHomeworkSubmission?homeworkGameId=" + pd.homeworkGameId +
+        "&name=" + encodeURIComponent(forename) + "&score=" + n + "&time=" + time + "&playerGuid=" + guid;
+
+      setIndicator("Wordwall: отправляю результат (" + n + "/" + n + ")...", "#3b82f6");
+      try {
+        const r = await fetch(url, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const txt = await r.text().catch(function () { return ""; });
+        console.log(TAG, "Wordwall submit:", r.status, "| score=" + n + " time=" + time + "ms | resp:", txt.slice(0, 200));
+        setIndicator(r.ok ? ("Wordwall: " + n + "/" + n + " отправлено (" + time + "мс) - открой результаты") : ("Wordwall: ошибка " + r.status), r.ok ? "#22c55e" : "#ef4444");
+      } catch (e) { setIndicator("Wordwall: сабмит упал: " + e.message, "#ef4444"); console.warn(TAG, "Wordwall submit err", e); }
+    },
+  };
+
+  const adapters = [kahootAdapter, classtimeAdapter, quizizzAdapter, edpuzzleAdapter, wordwallAdapter];
   const adapter = adapters.find((a) => a.matches(location.hostname));
   if (!adapter) {
     console.log(TAG, "сайт не поддержан:", location.hostname);
@@ -1295,6 +1345,19 @@
     })();
     window.__testhelperCleanup = function () {
       try { edpuzzleAdapter.cleanup(); } catch (e) {}
+      [indicatorEl, typeBadgeEl, overlayEl, gearEl, panelEl].forEach((el) => { if (el) el.remove(); });
+    };
+    return;
+  }
+
+  if (adapter.name === "wordwall") {
+    (async () => {
+      const c = await store.get(["enabled"]);
+      if (c.enabled === false) { setIndicator("выключено", "#666"); return; }
+      try { await wordwallAdapter.run(); }
+      catch (e) { console.warn(TAG, "Wordwall:", e.message); setIndicator("Wordwall: " + e.message, "#ef4444"); }
+    })();
+    window.__testhelperCleanup = function () {
       [indicatorEl, typeBadgeEl, overlayEl, gearEl, panelEl].forEach((el) => { if (el) el.remove(); });
     };
     return;
