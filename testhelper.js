@@ -597,7 +597,12 @@
     _waitTimer: null,
     ready() {
       var pd = window.pageData;
-      return !!(pd && pd.homeworkGameId && pd.activityGuid && (document.querySelector("canvas.render-canvas") || document.querySelector("canvas.js-render-canvas")));
+      if (!(pd && pd.homeworkGameId && pd.activityGuid)) return false;
+      if (!document.querySelector("canvas.render-canvas") && !document.querySelector("canvas.js-render-canvas")) return false;
+      // экран старта: видна кнопка "Почати" (join) -> тест ещё не начат
+      var join = document.querySelector(".js-join-button, .join-game");
+      if (join && join.offsetParent !== null) return false;
+      return true;
     },
     // клик на экране имени -> ждём загрузки теста -> шлём сабмит со свежим временем/режимом
     armAndRun() {
