@@ -621,7 +621,12 @@
         const r = await fetch(url, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const txt = await r.text().catch(function () { return ""; });
         console.log(TAG, "Wordwall submit:", r.status, "| score=" + n + " time=" + time + "ms | resp:", txt.slice(0, 200));
-        setIndicator(r.ok ? ("Wordwall: " + n + "/" + n + " отправлено (" + time + "мс) - открой результаты") : ("Wordwall: ошибка " + r.status), r.ok ? "#22c55e" : "#ef4444");
+        if (r.ok) {
+          setIndicator("Wordwall: " + n + "/" + n + " готово, завершаю...", "#22c55e");
+          setTimeout(function () { location.reload(); }, 700); // перезагрузка -> Wordwall покажет завершённое состояние/результаты
+        } else {
+          setIndicator("Wordwall: ошибка " + r.status, "#ef4444");
+        }
       } catch (e) { setIndicator("Wordwall: сабмит упал: " + e.message, "#ef4444"); console.warn(TAG, "Wordwall submit err", e); }
     },
   };
