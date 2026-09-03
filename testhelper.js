@@ -617,19 +617,38 @@
       }, 1000);
     },
 
+    countItems(content) {
+      var max = 0;
+      for (var k in content) if (content.hasOwnProperty(k) && Array.isArray(content[k]) && content[k].length > max) max = content[k].length;
+      return max;
+    },
+    describe(content) {
+      var o = {};
+      for (var k in content) {
+        if (!content.hasOwnProperty(k)) continue;
+        var v = content[k];
+        if (Array.isArray(v)) o[k] = "array[" + v.length + "] " + JSON.stringify(v[0] || null).slice(0, 160);
+        else if (v && typeof v === "object") o[k] = "obj " + JSON.stringify(v).slice(0, 100);
+        else o[k] = String(v).slice(0, 60);
+      }
+      return o;
+    },
+
     async run(timeMs, mode) {
       const pd = window.pageData || {};
       if (!pd.homeworkGameId) { setIndicator("Wordwall: нет id активности (не тот тип ссылки)", "#f59e0b"); return; }
-      if (pd.templateId !== 22) { setIndicator("Wordwall: пока только карты (шаблон 22), тут " + pd.templateId, "#f59e0b"); return; }
       setIndicator("Wordwall: читаю модель...", "#3b82f6");
       const modelUrl = "https://user.cdn.wordwall.net/content-models/" + pd.authorUserId + "/" + pd.activityGuid + ".json";
-      let labels = [];
-      try { const m = await this.fetchModel(modelUrl); labels = (m.content && m.content.labels) || []; }
+      let model;
+      try { model = await this.fetchModel(modelUrl); }
       catch (e) { setIndicator("Wordwall: модель не достал: " + e.message, "#ef4444"); return; }
-      if (!labels.length) { setIndicator("Wordwall: 0 меток в модели", "#ef4444"); return; }
-
-      if (mode === "canvas") return this.runCanvas(labels, timeMs || 800);
-      return this.runServer(pd, labels.length, timeMs || 800);
+      const content = (model && model.content) || {};
+      const n = this.countItems(content);
+      this._diag = { templateId: pd.templateId, type: model && model.type, count: n, content: this.describe(content),
+        pageData: { homeworkGameId: pd.homeworkGameId, activityGuid: pd.activityGuid, authorUserId: pd.authorUserId, templateId: pd.templateId } };
+      if (!n) { setIndicator("Wordwall: не нашёл элементы (шаблон " + pd.templateId + ") - жми «Копировать дамп»", "#f59e0b"); console.log(TAG, "WW diag:", this._diag); return; }
+      if (mode === "canvas") return this.runCanvas(content, timeMs || 800);
+      return this.runServer(pd, n, timeMs || 800);
     },
 
     async runServer(pd, n, time) {
@@ -646,15 +665,17 @@
       try {
         const r = await fetch(url, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const txt = await r.text().catch(function () { return ""; });
-        console.log(TAG, "Wordwall submit:", r.status, "| score=" + n + " time=" + time + "ms | resp:", txt.slice(0, 200));
-        setIndicator(r.ok ? ("Wordwall: " + n + "/" + n + " отправлено (" + time + "мс) - открой лидерборд") : ("Wordwall: ошибка " + r.status), r.ok ? "#22c55e" : "#ef4444");
+        this._diag = Object.assign(this._diag || {}, { submitUrl: url, submitBody: body, status: r.status, resp: txt.slice(0, 400) });
+        console.log(TAG, "WW forge шаблон=" + pd.templateId + " n=" + n + " статус=" + r.status + " resp=" + txt.slice(0, 150));
+        console.log(TAG, "WW diag (кнопка «Копировать дамп» в меню -> пришли мне):", this._diag);
+        setIndicator(r.ok ? ("Wordwall: " + n + "/" + n + " отправлено (" + time + "мс) - открой лидерборд") : ("Wordwall: ошибка " + r.status + " - жми «Копировать дамп»"), r.ok ? "#22c55e" : "#ef4444");
       } catch (e) { setIndicator("Wordwall: сабмит упал: " + e.message, "#ef4444"); console.warn(TAG, "Wordwall submit err", e); }
     },
 
-    async runCanvas(labels, time) {
-      // прохождение через сам движок (симуляция перетаскиваний по canvas) - в разработке, нужны дампы координат
-      setIndicator("Wordwall: канвас-режим ещё не готов (нужны дампы)", "#f59e0b");
-      console.log(TAG, "Wordwall canvas-режим: заглушка, меток " + labels.length + ", time " + time + "мс");
+    async runCanvas(content, time) {
+      // прохождение через сам движок (симуляция перетаскиваний по canvas) - в разработке
+      setIndicator("Wordwall: канвас-режим ещё не готов", "#f59e0b");
+      console.log(TAG, "Wordwall canvas-режим: заглушка, элементов " + this.countItems(content) + ", time " + time + "мс");
     },
   };
 
@@ -1338,7 +1359,16 @@
       sec.addEventListener("change", () => sync((+sec.value || 0) * 1000, "sec"));
       const go = mk("button", { width: "100%", marginTop: "6px", background: "#6c5ce7", color: "#fff", border: "0", borderRadius: "5px", padding: "6px", cursor: "pointer" }, { textContent: "Пройти" });
       go.addEventListener("click", () => wordwallAdapter.run(cur, wmode.value));
-      box.appendChild(slider); box.appendChild(secRow); box.appendChild(go);
+      const dump = mk("button", { width: "100%", marginTop: "4px", background: "#3a3a45", color: "#fff", border: "0", borderRadius: "5px", padding: "6px", cursor: "pointer", fontSize: "12px" }, { textContent: "Копировать дамп" });
+      dump.addEventListener("click", () => {
+        const d = wordwallAdapter._diag || { note: "сначала запусти (клик закладки или «Пройти»)" };
+        const txt = JSON.stringify(d, null, 1);
+        (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(
+          () => setIndicator("дамп скопирован - вставь в чат", "#22c55e"),
+          () => { console.log(TAG, "WW DUMP:\n" + txt); setIndicator("дамп в консоли (клипборд не дал)", "#f59e0b"); }
+        );
+      });
+      box.appendChild(slider); box.appendChild(secRow); box.appendChild(go); box.appendChild(dump);
       panel.appendChild(box);
     }
 
